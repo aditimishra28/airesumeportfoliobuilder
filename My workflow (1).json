@@ -1,0 +1,385 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "7999fb45-8ad2-47f8-a568-0a811dd10f36",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*https://localhost:8501"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -512,
+        160
+      ],
+      "id": "636e6cad-c260-46b0-9eb8-2e0a8dcf6519",
+      "name": "Webhook",
+      "webhookId": "7999fb45-8ad2-47f8-a568-0a811dd10f36"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fc31cc0d-cbea-4933-8cb6-04e112c962ed",
+              "leftValue": "={{$json[\"body\"][\"mode\"]}}",
+              "rightValue": "upload",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        160
+      ],
+      "id": "381348c8-0fd0-4f97-9c36-70085d69d69d",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare-File-For-Extraction - Function node\nconst itemsOut = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n\n  // safe fallback if no binary file: still copy job_description\n  const body = item.json[\"body\"] || {};\n\n  // If binary exists, convert it to base64 as before\n  let payload = {\n    filename: body.filename || item.json.filename || \"uploaded_file\",\n    mime_type: body.mime_type || item.json.mime_type || \"application/octet-stream\",\n    data_base64: body.data_base64 || item.json.data_base64 || null,\n    job_description: body.job_description || item.json.job_description || \"\"  // <--- attach JD here\n  };\n\n  // If there is binary and stored in binary key \"file\", include it (optional)\n  if (item.binary && item.binary.file) {\n    const dataBuffer = await this.helpers.getBinaryDataBuffer(i, \"file\");\n    payload.data_base64 = dataBuffer.toString(\"base64\");\n    payload.filename = item.binary.file.fileName || payload.filename;\n    payload.mime_type = item.binary.file.mimeType || payload.mime_type;\n  }\n\n  itemsOut.push({ json: { payload } });\n}\n\nreturn itemsOut;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f19fb65b-bf66-4482-a1cf-bfe7987e8b7a",
+      "name": "Prepare-File-For-Extraction"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1a7b3958-e0e5-4a2d-99cb-90ef29f0abd7",
+              "name": "resume_text",
+              "value": "={{ $json.resume_text }}",
+              "type": "string"
+            },
+            {
+              "id": "9130287e-db4b-4e3e-80cf-bb5d9e96d58a",
+              "name": "job_description",
+              "value": "={{ $json.job_description }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        384,
+        0
+      ],
+      "id": "f4964ea9-510e-4648-bc6f-d09aeb48537b",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://cordia-proeducation-america.ngrok-free.dev/extract_text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        192,
+        0
+      ],
+      "id": "aee419e5-5caf-4cab-bee9-e2d508be9f88",
+      "name": "Call-Extractor-Service"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build-Resume-From-Fields\n// Assemble a single resume_text string from manual form fields.\n// Returns { resume_text, job_description, missing_fields }\n\nconst input = items[0].json.body || items[0].json || {};\nconst name = input.name || input.full_name || \"\";\nconst contact = input.contact || input.email || input.phone || \"\";\nconst summary = input.summary || input.profile || \"\";\nconst education = input.education || \"\";\nconst experience = input.experience || \"\";\nconst skills = input.skills || \"\";\nconst projects = input.projects || \"\";\nconst extra = input.extra || \"\";\n\nconst job_description = input[\"job_description\"] || input[\"job description\"] || input.jobDescription || input.jd || \"\";\n\n// Build a readable resume-text\nlet resume_text = \"\";\nif (name) resume_text += `NAME: ${name}\\n`;\nif (contact) resume_text += `CONTACT: ${contact}\\n`;\nif (summary) resume_text += `SUMMARY: ${summary}\\n\\n`;\nif (experience) resume_text += `EXPERIENCE:\\n${Array.isArray(experience) ? experience.join(\"\\n\") : experience}\\n\\n`;\nif (education) resume_text += `EDUCATION:\\n${Array.isArray(education) ? education.join(\"\\n\") : education}\\n\\n`;\nif (projects) resume_text += `PROJECTS:\\n${Array.isArray(projects) ? projects.join(\"\\n\") : projects}\\n\\n`;\nif (skills) resume_text += `SKILLS: ${Array.isArray(skills) ? skills.join(\", \") : skills}\\n\\n`;\nif (extra) resume_text += `ADDITIONAL: ${extra}\\n\\n`;\n\n// Collect missing fields that you consider important\nconst missing = [];\nif (!summary) missing.push(\"summary\");\nif (!experience) missing.push(\"experience\");\nif (!skills) missing.push(\"skills\");\n\nreturn [{\n  json: {\n    resume_text: resume_text,\n    job_description: job_description,\n    missing_fields: missing\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        272
+      ],
+      "id": "d64a3e01-bf4b-4480-a36b-424e2d157fd2",
+      "name": "Build-Resume-From-Fields"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1593ba8-410f-47e1-85ac-5c64d6be61f3",
+              "name": "resume_text",
+              "value": "={{$json[\"resume_text\"]}}",
+              "type": "string"
+            },
+            {
+              "id": "06ff55df-0fe0-4e05-b68a-f8d80e06c1a5",
+              "name": "job_description",
+              "value": "={{$json[\"job_description\"]}}",
+              "type": "string"
+            },
+            {
+              "id": "34814184-3428-4116-a78f-753c9d7c126b",
+              "name": "missing_fields",
+              "value": "={{$json[\"missing_fields\"] || []}}",
+              "type": "string"
+            },
+            {
+              "id": "1d63415d-0de6-496f-b119-062102102d09",
+              "name": "prompt",
+              "value": "=You are an expert resume editor and HTML developer. Improve the resume ONLY using the information that already exists in the input.\n\nSTRICT RULES:\n1. Do NOT invent, guess, or add any new information. If something is missing, simply omit it. Never use placeholders such as [not provided], [add metric], or fictional companies, dates, skills, or achievements.\n2. Preserve the candidate’s NAME and CONTACT DETAILS exactly as provided.\n3. Keep EVERY section that exists in the original resume. If the resume contains:\n   - Certifications → include ALL of them\n   - Projects → include ALL projects\n   - Awards → include ALL awards\n   - Publications → include ALL publications\n   - Volunteer work → include ALL volunteer work\n   - Skills → include ALL skills, do not remove anything\n   - Mandatory: do not show or add any new sections which are not present in the resume\n4. You may reorganize, rewrite, clarify, and improve wording — but NEVER remove original facts.\n5. Do NOT add numbers, metrics, or achievements that were not clearly stated in the resume.\n6. Use the Job Description ONLY to:\n   - strengthen the SUMMARY\n   - emphasize skills already present\n   - Use strong action verbs and professional tone  to reorder or highlight, enhance relevant experience\n   - enhance the key words in project description if PROJECT is available in the resume\n   - keep only 1 or 2 bullet points for projects\n   -Mandatory: Show skills and tools in a single section\n  -Mandatory :add more skills and more tools  which are required for the  job description and job title\n   Do NOT create new duties or expertise that the candidate never mentioned.\n7. Formatting requirements:\n   - MUST be ATS-friendly (simple, no special symbols)\n   - Use these section headers ONLY if applicable: \n     NAME, CONTACT INFORMATION, SUMMARY, SKILLS, EXPERIENCE, EDUCATION, PROJECTS, CERTIFICATIONS, AWARDS, PUBLICATIONS, VOLUNTEER WORK\n  -each experience must have 3 enhanced professional bullet points\n   - Keep bullet points clear and concise.\n8. Mandtatory: keep All skills same line\n                          keep all tools in the same line\n                          keep all coursework in the same line\n9. HTML rules:You are an HTML/CSS generator. Your task: convert the enhanced resume  into a standalone, print-ready HTML file (single .html) that reproduces the structure described below.\nHigh-level rules (do not deviate):\n• Preserve every word, punctuation mark, ordering and blank-line structure inside the resume block exactly as-is EXCEPT for the specific formatting fixes defined below. Do NOT add, remove, paraphrase, or correct content.\n• Use Times New Roman for all text.\n• No external resources (no external fonts, CSS, JS). All styles must be embedded.\n• Output must be compact and clean HTML (no inline styles on individual content elements unless absolutely necessary).\n\nPage / print layout:\n• Set page size to A4 for printing.\n• Use 1 cm margins on all sides for print (@page { margin: 1cm; }).\n- important:Add hTML code  to force real margins\n• Ensure no content is clipped when printing.\n\nTypography & layout (visual rules):\n• Candidate name: bold, 24px, top of page, centered.\n• Contact line(s): immediately under the name, normal weight, 12px, centered. Insert a horizontal rule (1px solid #000) directly after the entire contact info block spanning content width.\n• All section headers (e.g., \"PROFESSIONAL SUMMARY\", \"EDUCATION\", \"WORK EXPERIENCE\", \"SKILLS\", \"CERTIFICATIONS\", \"COURSEWORK\", etc.):\n  - Uppercase, underlined, 14px, left aligned.\n  - 12px vertical spacing above and 6px below the header.\n• Subtitles (company names, degrees, job titles, dates): italic, 12px.\n• Body text (bullets, paragraphs): 11px, left aligned, line-height: 1.2.\n• Bulleted lists: solid disc bullets, indent by 1.2em.\n• All skills, tools, and coursework must be rendered inline, left-aligned, and separated by commas (example: Skills: \"Python\", \"Java\", \"SQL\", \"Tableau\"). Do NOT render these as centered blocks or as vertically stacked centered lines. Preserve the original words but convert multiple-space / multiple-line item sequences in the SKILLS, TOOLS, and COURSEWORK sections into a single inline, comma-separated sequence that wraps naturally.\n  - Implementation detail allowed: when the original section shows items separated by multiple spaces or line breaks (e.g., \"SQL  Tableau and Prep  Power BI  Python\"), render them as: SQL, Tableau and Prep, Power BI, Python, etc. Preserve the original wording of each item exactly (only change separators and alignment).\n• Ensure consistent left alignment for paragraphs and inline lists (no unintended centering or large left indentation).\n\nPreventing orphaned headings:\n• Guarantee that a section heading is never separated from the first block of its content by a page break. Use CSS rules to keep a heading with its first paragraph/list item:\n  - e.g., apply rules like `h2, h2 + p, h2 + .inline-list, .section { break-inside: avoid; page-break-inside: avoid; }` and `h2 { page-break-after: avoid; }`.\n• If a section's content is longer than one page, allow the remaining content to flow to the next page, but the heading must remain with the first line(s) of content on the same page.\n\nSemantic HTML:\n• Use <header> for the top area (name + contact + hr), <section> for each major resume section, <h1>/<h2> for headings, <p> for paragraphs, <ul>/<li> for lists, and <footer> if needed.\n• Do not wrap section headings in additional decorative elements that interfere with print/page-break behavior.\n\nAccessibility & printing:\n• Include <meta charset=\"utf-8\"> and <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">.\n• Ensure printed output respects @page margins and does not clip content.\n\nProcessing instructions for the input block:\n• The generator will receive the resume exactly between <!--START_RESUME--> and <!--END_RESUME-->.\n• Preserve the exact text and blank lines, but:\n  1) For the SKILLS, TOOLS, and COURSEWORK sections, convert sequences of items that appear separated by multiple spaces and/or newlines into a single inline sequence separated by commas (preserve each item's text exactly).\n  2) For other sections, keep the same textual content and paragraph breaks, rendering bullets for lines that start with \"-\" exactly as list items.\n  3) Ensure headings remain on the same page as the first paragraph or list item that follows them (use CSS break-inside/avoid rules described above).\n\nExample expected behavior (do not output example in final response):\n• If the resume contains:\n  COURSEWORK\n  Data Visualization and Storytelling  Big Data  Database Management\n  → Render as:\n  <h2>COURSEWORK</h2>\n  <p class=\"inline-list\">Data Visualization and Storytelling, Big Data, Database Management</p>\n• If a header would otherwise land at the bottom of a printed page, the layout must push the header and its first content line together onto the next page.\n\nYour job is NOT to create a new resume, but to professionally rewrite ,enhance and structure what the candidate already provided and provide the clean html code following the above rules\n\nINPUT RESUME:\n{{$json[\"resume_text\"]}}\n\nJOB DESCRIPTION:\n{{$json[\"job_description\"]}}\n\nOUTPUT:\nReturn ONLY an HTML code for enhanced, clean, professional resume with ALL original content preserved and improved — and absolutely NO fabricated or placeholder information.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        656,
+        144
+      ],
+      "id": "efdc127a-af70-45e3-9320-b11623af7942",
+      "name": "Prepare-Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://cordia-proeducation-america.ngrok-free.dev//generate_resume",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "=application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "max_length",
+              "value": "=2000"
+            },
+            {
+              "name": "temperature",
+              "value": "0.0"
+            },
+            {
+              "name": "resume_text",
+              "value": "={{ $json.resume_text }}"
+            },
+            {
+              "name": "job_description",
+              "value": "={{ $json.job_description }}"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        848,
+        144
+      ],
+      "id": "c2f1d459-f014-406c-9259-d2e92f3319ec",
+      "name": "Call-Local-t5"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"final_pdf_url\": \"{{ $json[\"pdf_url\"] }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1200,
+        144
+      ],
+      "id": "d607533d-95c8-47f9-8bd1-8ec04d82f9a6",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "html_content": "={{ $json.data }}"
+      },
+      "type": "n8n-nodes-htmlcsstopdf.htmlcsstopdf",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        144
+      ],
+      "id": "75bf9293-bbd2-4021-b40d-01ddebc21c09",
+      "name": "HTML to PDF",
+      "credentials": {
+        "htmlcsstopdfApi": {
+          "id": "5qyUFXq0lVvBp4Hj",
+          "name": "HTML to PDF account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Prepare-File-For-Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build-Resume-From-Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare-File-For-Extraction": {
+      "main": [
+        [
+          {
+            "node": "Call-Extractor-Service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call-Extractor-Service": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Prepare-Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build-Resume-From-Fields": {
+      "main": [
+        [
+          {
+            "node": "Prepare-Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare-Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call-Local-t5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call-Local-t5": {
+      "main": [
+        [
+          {
+            "node": "HTML to PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML to PDF": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "94dd2b0e-a9f7-4da8-9c68-edc49ab85446",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5cd93663621283381d00d835469367e28b387c021698c26a4ee3d89de3a4a159"
+  },
+  "id": "7rpBIbWlCFQinXtc",
+  "tags": []
+}
